@@ -1,302 +1,204 @@
-import pymupdf
-import xlsxwriter
-from dataclasses import dataclass
+import os
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+from parse_cie_certificate import CambridgeOCRExtractor
+from parse_ucas_statement import UCASExtractor
 from datetime import datetime
-from more_itertools import peekable
 
 
-PDF_PAGE_DIM = (612.0, 792.0)
-MARGIN_TOP = 60
-MARGIN_BOTTOM = 40
+class ExtractorGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("CIE Certificate & UCAS Extractor")
+        self.root.geometry("600x400")
 
+        self.statement_dir = tk.StringVar()
+        self.ucas_dir = tk.StringVar()
+        self.output_dir = tk.StringVar()
 
-@dataclass
-class EducationEntry:
-    school_name: str
-    qualification_category: str
-    subject_name: str
-    subject_grade: str
-    subject_date: str
-    subject_awarding_org: str
-    subject_country: str
+        self._create_widgets()
 
+    def _create_widgets(self):
+        padding = {"padx": 10, "pady": 5}
 
-@dataclass
-class UCASData:
-    first_name: str
-    last_name: str
-    education: list[EducationEntry]
+        ttk.Label(self.root, text="CIE Certificate/Statement Directory:").pack(
+            fill=tk.X, **padding
+        )
+        statement_frame = ttk.Frame(self.root)
+        statement_frame.pack(fill=tk.X, **padding)
+        ttk.Entry(statement_frame, textvariable=self.statement_dir, width=50).pack(
+            side=tk.LEFT, fill=tk.X, expand=True
+        )
+        ttk.Button(
+            statement_frame, text="Browse", command=self._browse_statement_dir
+        ).pack(side=tk.RIGHT, padx=5)
 
-
-class UCASExtractor:
-    def __init__(self, pdf_path: str = "./example-ucas.pdf"):
-        self.pdf_path = pdf_path
-
-    def extract(self) -> UCASData:
-        doc = pymupdf.open(self.pdf_path)
-        print("Number of pages: ", doc.page_count)
-
-        pdf_dim = (doc[0].rect.width, doc[0].rect.height)
-        print("Dimension: ", pdf_dim)
-
-        first_name, last_name = self._find_name(doc, pdf_dim)
-
-        education_section = self._get_education_section(doc)[0]
-        education_title_page = education_section[0]
-        education_title_rect = education_section[1][0]
-
-        employment_section = self._get_employment_section(doc)[0]
-        employment_title_page = employment_section[0]
-        employment_title_rect = employment_section[1][0]
-
-        print(education_title_page, employment_title_page)
-
-        education_raw_text = self._get_text_between(
-            doc,
-            education_title_page,
-            employment_title_page,
-            pymupdf.Point(education_title_rect.x0, education_title_rect.y1 + 60),
-            pymupdf.Point(pdf_dim[0], employment_title_rect.y0),
+        ttk.Label(self.root, text="UCAS PDF Directory:").pack(fill=tk.X, **padding)
+        ucas_frame = ttk.Frame(self.root)
+        ucas_frame.pack(fill=tk.X, **padding)
+        ttk.Entry(ucas_frame, textvariable=self.ucas_dir, width=50).pack(
+            side=tk.LEFT, fill=tk.X, expand=True
+        )
+        ttk.Button(ucas_frame, text="Browse", command=self._browse_ucas_dir).pack(
+            side=tk.RIGHT, padx=5
         )
 
-        education_info = self._parse_education_info(education_raw_text)
-
-        return UCASData(
-            first_name=first_name,
-            last_name=last_name,
-            education=education_info,
+        ttk.Label(self.root, text="Output Directory:").pack(fill=tk.X, **padding)
+        output_frame = ttk.Frame(self.root)
+        output_frame.pack(fill=tk.X, **padding)
+        ttk.Entry(output_frame, textvariable=self.output_dir, width=50).pack(
+            side=tk.LEFT, fill=tk.X, expand=True
+        )
+        ttk.Button(output_frame, text="Browse", command=self._browse_output_dir).pack(
+            side=tk.RIGHT, padx=5
         )
 
-    def _find_rects_in_pdf(self, doc, search_string):
-        results = []
-        for page in doc:
-            areas = page.search_for(search_string)
-            if areas:
-                results.append((page.number, areas))
-        return results
+        ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=20)
 
-    def _get_sections(self, doc, title):
-        return [
-            j
-            for j in filter(
-                lambda p: len([i for i in p[1] if i.height > 16]) > 0,
-                self._find_rects_in_pdf(doc, title),
+        button_frame = ttk.Frame(self.root)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        ttk.Button(
+            button_frame,
+            text="Generate CIE Certificate XLSX",
+            command=self._generate_cie_xlsx,
+        ).pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+
+        ttk.Button(
+            button_frame,
+            text="Generate UCAS XLSX",
+            command=self._generate_ucas_xlsx,
+        ).pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+
+        self.status_var = tk.StringVar(value="Ready")
+        status_bar = ttk.Label(
+            self.root, textvariable=self.status_var, relief=tk.SUNKEN
+        )
+        status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+
+    def _browse_statement_dir(self):
+        path = filedialog.askdirectory(
+            title="Select CIE Certificate/Statement Directory"
+        )
+        if path:
+            self.statement_dir.set(path)
+
+    def _browse_ucas_dir(self):
+        path = filedialog.askdirectory(title="Select UCAS PDF Directory")
+        if path:
+            self.ucas_dir.set(path)
+
+    def _browse_output_dir(self):
+        path = filedialog.askdirectory(title="Select Output Directory")
+        if path:
+            self.output_dir.set(path)
+
+    def _get_output_path(self, filename):
+        output_dir = self.output_dir.get()
+        if output_dir:
+            return os.path.join(output_dir, filename)
+        return filename
+
+    def _generate_cie_xlsx(self):
+        directory = self.statement_dir.get()
+        if not directory:
+            messagebox.showwarning(
+                "Warning", "Please select a directory for CIE certificates/statements."
             )
-        ]
+            return
 
-    def _get_education_section(self, doc):
-        titles = self._get_sections(doc, "Education")
-        assert len(titles) > 0, "Education title not found"
-        return titles
+        self.status_var.set("Processing CIE certificates/statements...")
+        self.root.update()
 
-    def _get_employment_section(self, doc):
-        titles = self._get_sections(doc, "Employment")
-        assert len(titles) > 0, "Employment title not found"
-        return titles
-
-    def _get_text_between(
-        self,
-        doc: pymupdf.Document,
-        page_start: int,
-        page_end: int,
-        pos_start: pymupdf.Point,
-        pos_end: pymupdf.Point,
-    ):
-        result = ""
-        for page_num in range(page_start, page_end + 1):
-            page = doc[page_num]
-            if page_num == page_start and page_num == page_end:
-                rect = pymupdf.Rect(pos_start.x, pos_start.y, pos_end.x, pos_end.y)
-            elif page_num == page_start:
-                rect = pymupdf.Rect(
-                    page.rect.x0,
-                    pos_start.y,
-                    page.rect.x1,
-                    page.rect.y1 - MARGIN_BOTTOM,
+        try:
+            pdf_files = [f for f in os.listdir(directory) if f.lower().endswith(".pdf")]
+            if not pdf_files:
+                messagebox.showinfo(
+                    "Info", "No PDF files found in the selected directory."
                 )
-            elif page_num == page_end:
-                rect = pymupdf.Rect(page.rect.x0, MARGIN_TOP, pos_end.x, pos_end.y)
+                return
+
+            pdf_paths = [os.path.join(directory, f) for f in pdf_files]
+            extractor = CambridgeOCRExtractor(dpi=300)
+            all_records = extractor.extract_all(pdf_paths)
+
+            if all_records:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_path = self._get_output_path(f"cie_results_{timestamp}.xlsx")
+                extractor.write_to_xlsx(all_records, output_path)
+                self.status_var.set(f"Done! Written to: {output_path}")
+                messagebox.showinfo("Success", f"Generated {output_path}")
             else:
-                rect = pymupdf.Rect(
-                    page.rect.x0, MARGIN_TOP, page.rect.x1, page.rect.y1 - MARGIN_BOTTOM
-                )
-            result += page.get_textbox(rect)
-            result += "\n"
-        return result.strip()
+                messagebox.showerror("Error", "No records extracted from PDFs.")
+                self.status_var.set("No records extracted.")
 
-    def _find_name(self, doc: pymupdf.Document, dim):
-        (first_name_page, first_name_rects) = self._find_rects_in_pdf(
-            doc, "First and middle name(s)"
-        )[0]
-        (last_name_page, last_name_rects) = self._find_rects_in_pdf(doc, "Last name")[0]
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to process: {e}")
+            self.status_var.set("Error occurred.")
 
-        assert first_name_page != -1 and len(first_name_rects) > 0, (
-            "Student first name not found"
-        )
-        assert last_name_page != -1 and len(last_name_rects) > 0, (
-            "Student last name not found"
-        )
-
-        first_name_rect = pymupdf.Rect(
-            first_name_rects[0].x1,
-            first_name_rects[0].y0,
-            dim[0],
-            first_name_rects[0].y1,
-        )
-        last_name_rect = pymupdf.Rect(
-            last_name_rects[0].x1, last_name_rects[0].y0, dim[0], last_name_rects[0].y1
-        )
-
-        first_name = doc[first_name_page].get_textbox(first_name_rect)
-        last_name = doc[last_name_page].get_textbox(last_name_rect)
-
-        return first_name, last_name
-
-    def _parse_education_info(self, raw_text: str) -> list[EducationEntry]:
-        lines = [i.strip() for i in raw_text.split("\n") if (len(i.strip()) > 0)]
-
-        qualification_end_index = lines.index("Unique Learner Number (ULN):")
-
-        indices = peekable(
-            map(
-                lambda x: x - 1,
-                [i for i, x in enumerate(lines) if x == "National centre number:"],
+    def _generate_ucas_xlsx(self):
+        directory = self.ucas_dir.get()
+        if not directory:
+            messagebox.showwarning(
+                "Warning", "Please select a directory for UCAS PDFs."
             )
-        )
-        results = []
+            return
 
-        for i in indices:
-            end_index = indices.peek(-1)
-            end_index = end_index if end_index >= 0 else qualification_end_index
+        self.status_var.set("Processing UCAS PDFs...")
+        self.root.update()
 
-            school_name = lines[i]
-            qualification_category = ""
-            subject_name = ""
-            subject_grade = ""
-            subject_date = ""
-            subject_awarding_org = ""
-            subject_country = ""
+        try:
+            pdf_files = [f for f in os.listdir(directory) if f.lower().endswith(".pdf")]
+            if not pdf_files:
+                messagebox.showinfo(
+                    "Info", "No PDF files found in the selected directory."
+                )
+                return
 
-            qualification_lines = peekable(lines[i + 4 : end_index])
-            for j in qualification_lines:
-                if j.startswith("Grade:") or j.startswith("Result:"):
-                    subject_grade = j.split(":")[1].strip()
-                elif j.startswith("Qualification date:"):
-                    subject_date = j.split(":")[1].strip()
-                    next_line = qualification_lines.peek("")
-                    if len(next_line) == 4 and next_line.isnumeric():
-                        subject_date += f" {next(qualification_lines)}"
-                elif j.startswith("Awarding organisation:"):
-                    subject_awarding_org = j.split(":")[1].strip()
-                elif j.startswith("Country:"):
-                    subject_country = j.split(":")[1].strip()
-                elif ":" not in j:
-                    is_valid_subject = (
-                        subject_name != ""
-                        and subject_date != ""
-                        and subject_awarding_org != ""
+            all_data = []
+
+            for pdf_file in pdf_files:
+                pdf_path = os.path.join(directory, pdf_file)
+                self.status_var.set(f"Processing: {pdf_file}")
+                self.root.update()
+
+                try:
+                    extractor = UCASExtractor(pdf_path)
+                    data = extractor.extract()
+                    print(
+                        f"Extracted {len(data.education)} education entries from {pdf_file}"
                     )
-                    if is_valid_subject:
-                        results.append(
-                            EducationEntry(
-                                school_name=school_name,
-                                qualification_category=qualification_category,
-                                subject_name=subject_name,
-                                subject_grade=subject_grade if subject_grade else "N/A",
-                                subject_date=subject_date,
-                                subject_awarding_org=subject_awarding_org,
-                                subject_country=subject_country,
-                            )
-                        )
-                        subject_name = ""
-                        subject_grade = ""
-                        subject_date = ""
-                        subject_country = ""
+                    all_data.append(data)
+                except Exception as e:
+                    print(f"Error processing {pdf_file}: {e}")
 
-                    if ":" not in qualification_lines.peek():
-                        qualification_category = j.strip()
-                    else:
-                        subject_name = j.strip()
+            print(f"Total PDFs processed: {len(all_data)}")
+            total_entries = sum(len(data.education) for data in all_data)
+            print(f"Total education entries collected: {total_entries}")
 
-        return results
+            if all_data:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_path = self._get_output_path(f"ucas_results_{timestamp}.xlsx")
+                UCASExtractor.write_combined_to_xlsx(
+                    UCASExtractor(), all_data, output_path
+                )
+                print(f"Written to: {output_path}")
+                self.status_var.set(f"Done! Written to: {output_path}")
+                messagebox.showinfo("Success", f"Generated {output_path}")
+            else:
+                messagebox.showerror("Error", "No records extracted from PDFs.")
+                self.status_var.set("No records extracted.")
 
-    def write_to_xlsx(
-        self, data: UCASData, output_path: str = "ucas_results.xlsx"
-    ) -> str:
-        """
-        Write UCAS data to xlsx file.
-        """
-        workbook = xlsxwriter.Workbook(output_path)
-        worksheet = workbook.add_worksheet()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to process: {e}")
+            self.status_var.set("Error occurred.")
 
-        headers = [
-            "name",
-            "school_name",
-            "qualification_category",
-            "subject_name",
-            "subject_grade",
-            "subject_date",
-            "subject_awarding_org",
-            "subject_country",
-        ]
-        for col, header in enumerate(headers):
-            worksheet.write(0, col, header)
 
-        full_name = f"{data.first_name} {data.last_name}".strip()
-
-        for row, entry in enumerate(data.education, start=1):
-            worksheet.write(row, 0, full_name)
-            worksheet.write(row, 1, entry.school_name)
-            worksheet.write(row, 2, entry.qualification_category)
-            worksheet.write(row, 3, entry.subject_name)
-            worksheet.write(row, 4, entry.subject_grade)
-            worksheet.write(row, 5, entry.subject_date)
-            worksheet.write(row, 6, entry.subject_awarding_org)
-            worksheet.write(row, 7, entry.subject_country)
-
-        workbook.close()
-        return output_path
-
-    def write_combined_to_xlsx(
-        self, all_data: list[UCASData], output_path: str = "ucas_results.xlsx"
-    ) -> str:
-        """
-        Write multiple UCAS data records to a single xlsx file.
-        """
-        workbook = xlsxwriter.Workbook(output_path)
-        worksheet = workbook.add_worksheet()
-
-        headers = [
-            "name",
-            "school_name",
-            "qualification_category",
-            "subject_name",
-            "subject_grade",
-            "subject_date",
-            "subject_awarding_org",
-            "subject_country",
-        ]
-        for col, header in enumerate(headers):
-            worksheet.write(0, col, header)
-
-        row = 1
-        for data in all_data:
-            full_name = f"{data.first_name} {data.last_name}".strip()
-            for entry in data.education:
-                worksheet.write(row, 0, full_name)
-                worksheet.write(row, 1, entry.school_name)
-                worksheet.write(row, 2, entry.qualification_category)
-                worksheet.write(row, 3, entry.subject_name)
-                worksheet.write(row, 4, entry.subject_grade)
-                worksheet.write(row, 5, entry.subject_date)
-                worksheet.write(row, 6, entry.subject_awarding_org)
-                worksheet.write(row, 7, entry.subject_country)
-                row += 1
-
-        workbook.close()
-        return output_path
+def main():
+    root = tk.Tk()
+    app = ExtractorGUI(root)
+    root.mainloop()
 
 
 if __name__ == "__main__":
-    extractor = UCASExtractor()
-    result = extractor.extract()
+    main()
