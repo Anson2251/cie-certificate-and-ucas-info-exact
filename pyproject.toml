@@ -1,5 +1,5 @@
 [project]
-name = "cie-certificate-and-ucas-info-exact"
+name = "cie-statement-and-ucas-info-exact"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"

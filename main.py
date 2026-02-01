@@ -1,7 +1,7 @@
 import os
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-from parse_cie_certificate import CambridgeOCRExtractor
+from parse_cie_statement import CambridgeOCRExtractor
 from parse_ucas_statement import UCASExtractor
 from datetime import datetime
 
@@ -9,7 +9,7 @@ from datetime import datetime
 class ExtractorGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("CIE Certificate & UCAS Extractor")
+        self.root.title("CIE Statement & UCAS Extractor")
         self.root.geometry("600x400")
 
         self.statement_dir = tk.StringVar()
@@ -21,7 +21,7 @@ class ExtractorGUI:
     def _create_widgets(self):
         padding = {"padx": 10, "pady": 5}
 
-        ttk.Label(self.root, text="CIE Certificate/Statement Directory:").pack(
+        ttk.Label(self.root, text="CIE Statement/Statement Directory:").pack(
             fill=tk.X, **padding
         )
         statement_frame = ttk.Frame(self.root)
@@ -60,7 +60,7 @@ class ExtractorGUI:
 
         ttk.Button(
             button_frame,
-            text="Generate CIE Certificate XLSX",
+            text="Generate CIE Statement XLSX",
             command=self._generate_cie_xlsx,
         ).pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
 
@@ -78,7 +78,7 @@ class ExtractorGUI:
 
     def _browse_statement_dir(self):
         path = filedialog.askdirectory(
-            title="Select CIE Certificate/Statement Directory"
+            title="Select CIE Statement/Statement Directory"
         )
         if path:
             self.statement_dir.set(path)
@@ -103,11 +103,11 @@ class ExtractorGUI:
         directory = self.statement_dir.get()
         if not directory:
             messagebox.showwarning(
-                "Warning", "Please select a directory for CIE certificates/statements."
+                "Warning", "Please select a directory for CIE statements/statements."
             )
             return
 
-        self.status_var.set("Processing CIE certificates/statements...")
+        self.status_var.set("Processing CIE statements/statements...")
         self.root.update()
 
         try:
