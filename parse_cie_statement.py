@@ -46,6 +46,12 @@ class ElectronicRectCoefficients:
     series: tuple = (0.646, 0.261, 0.787, 0.302)
 
 
+def format_str_from_ocr(string: str) -> str:
+    return " ".join([i for i in map(
+        lambda x: x.lower() if len(x) <= 3 else (x[0].upper() + x[1:].lower()), 
+        string.strip().strip(".").strip(":").strip().split(" ")
+    )])
+
 
 class CambridgeOCRExtractor:
     def __init__(self, dpi: int = 300):
@@ -54,141 +60,177 @@ class CambridgeOCRExtractor:
         """
         self.dpi = dpi
 
-    def extract(self, pdf_path: str) -> ExamRecord:
+    def extract(self, pdf_path: str) -> list[ExamRecord]:
         print("Processing document:", pdf_path)
         doc = fitz.open(pdf_path)
-        page = doc[0]
+        records = []
+        for page in doc:
+            page_number = page.number
+            assert page_number is not None, "Page number is None"
+            page_number += 1
+            page_rect = page.rect
+            
+            common_coeffs = RectCoefficients()
+            electronic_coeffs = ElectronicRectCoefficients()
 
-        page_rect = page.rect
-        
-        common_coeffs = RectCoefficients()
-        electronic_coeffs = ElectronicRectCoefficients()
+            def make_rect(coeff):
+                return fitz.Rect(
+                    page_rect.x1 * coeff[0],
+                    page_rect.y1 * coeff[1],
+                    page_rect.x1 * coeff[2],
+                    page_rect.y1 * coeff[3],
+                )
 
-        def make_rect(coeff):
-            return fitz.Rect(
-                page_rect.x1 * coeff[0],
-                page_rect.y1 * coeff[1],
-                page_rect.x1 * coeff[2],
-                page_rect.y1 * coeff[3],
-            )
+            is_electronic = len(page.get_textbox(page.rect)) > 0
 
-        is_electronic = len(page.get_textbox(page.rect)) > 0
-
-        if not is_electronic:
-            print("Non-electronic document, using OCR")
-            page = page.get_textpage_ocr(
-                language="eng",
-                dpi=self.dpi,
-                full=True,
-            )
-        else:
-            page = page.get_textpage()
-
-        exam_kind_rect = make_rect(common_coeffs.exam_kind if not is_electronic else electronic_coeffs.exam_kind)
-        name_rect = make_rect(common_coeffs.name if not is_electronic else electronic_coeffs.name)
-        dob_rect = make_rect(common_coeffs.dob if not is_electronic else electronic_coeffs.dob)
-        id_num = make_rect(common_coeffs.id_num if not is_electronic else electronic_coeffs.id_num)
-        center_name_rect = make_rect(common_coeffs.center_name if not is_electronic else electronic_coeffs.center_name)
-        series_rect = make_rect(common_coeffs.series if not is_electronic else electronic_coeffs.series)
-
-        exam_kind = page.extractTextbox(exam_kind_rect).strip()
-        name = page.extractTextbox(name_rect).strip()
-        dob = page.extractTextbox(dob_rect).strip()
-        id_num = page.extractTextbox(id_num).strip()
-        center_name = page.extractTextbox(center_name_rect).strip()
-        exam_date = page.extractTextbox(series_rect).strip()
-
-        assert len(exam_kind) > 0, "Could not extract exam kind"
-        assert len(name) > 0, "Could not extract name"
-        assert len(dob) > 0, "Could not extract DOB"
-        assert len(id_num) > 0, "Could not extract ID number"
-        assert len(center_name) > 0, "Could not extract center name"
-        assert len(exam_date) > 0, "Could not extract series"
-
-        name = name.split("\n")[1]
-        dob = dob.split("\n")[1]
-        id_num = id_num.split("\n")[1]
-        center_name = center_name.split("\n")[1]
-        exam_date = exam_date.split("\n")[1]
-
-        # print("=======")
-        # print("Title: ", title)
-        # print("Exam kind: ", exam_kind)
-        # print("Name: ", name)
-        # print("DOB: ", dob)
-        # print("ID num: ", id_num)
-        # print("Center name: ", center_name)
-        # print("Series: ", exam_date)
-
-        line_height = 0.005
-        line_space = 0.013
-        subject_start_pos = 0.4336 if is_electronic else 0.2747
-
-        digit_regex = re.compile(r'\d+')
-        
-        subjects: list[SubjectResult] = []
-        reached_end = False
-        item_num = 0
-        while not reached_end and subject_start_pos < 1:
-            line_rect = make_rect((0, subject_start_pos, 1, subject_start_pos + line_height))
-            line_text = page.extractTextbox(line_rect).strip()
-            subject_start_pos += line_height + line_space
-
-            if len(line_text) == 0:
-                reached_end = True
+            if not is_electronic:
+                print(f"Non-electronic document on page {page_number}, using OCR")
+                page = page.get_textpage_ocr(
+                    language="eng",
+                    dpi=self.dpi,
+                    full=True,
+                )
             else:
-                if "Syllabus" in line_text:
-                    item_num = len(line_text.split("\n"))
-                    continue
+                page = page.get_textpage()
 
-                if line_text.startswith("With"):
-                    last_item = subjects.pop()
-                    minor_grade_match = digit_regex.search(line_text)
-                    if minor_grade_match:
-                        last_item.grade += f"-{minor_grade_match.group()}"
-                    subjects.append(last_item)
-                    continue
+            title_rect = make_rect(common_coeffs.title if not is_electronic else electronic_coeffs.title)
+            exam_kind_rect = make_rect(common_coeffs.exam_kind if not is_electronic else electronic_coeffs.exam_kind)
+            name_rect = make_rect(common_coeffs.name if not is_electronic else electronic_coeffs.name)
+            dob_rect = make_rect(common_coeffs.dob if not is_electronic else electronic_coeffs.dob)
+            id_num = make_rect(common_coeffs.id_num if not is_electronic else electronic_coeffs.id_num)
+            center_name_rect = make_rect(common_coeffs.center_name if not is_electronic else electronic_coeffs.center_name)
+            series_rect = make_rect(common_coeffs.series if not is_electronic else electronic_coeffs.series)
 
-                items = line_text.split("\n")
-                syllabus_code = items[0].strip()
-                subject_name = ""
-                qualification = ""
-                grade = ""
-                pum = 0
-                
-                if item_num == 4:
-                    subject_name = " ".join(items[1:-2])
-                    grade = self._parse_grade(items[-2].strip())
-                    qualification = exam_kind
-                    pum_match = digit_regex.search(items[-1].strip())
-                    if pum_match:
-                        pum = int(pum_match.group())
+            title = page.extractTextbox(title_rect).strip()
+            exam_kind = page.extractTextbox(exam_kind_rect).strip()
+            name = page.extractTextbox(name_rect).strip()
+            dob = page.extractTextbox(dob_rect).strip()
+            id_num = page.extractTextbox(id_num).strip()
+            center_name = page.extractTextbox(center_name_rect).strip()
+            exam_date = page.extractTextbox(series_rect).strip()
+
+            if (
+                len(exam_kind) == 0
+                or len(name) == 0
+                or len(dob) == 0
+                or len(id_num) == 0
+                or len(center_name) == 0
+                or len(exam_date) == 0
+            ):
+                if len(exam_kind) == 0:
+                    print(f"Could not extract exam kind on page {page_number}")
+                if len(name) == 0:
+                    print(f"Could not extract name on page {page_number}")
+                if len(dob) == 0:
+                    print(f"Could not extract DOB on page {page_number}")
+                if len(id_num) == 0:
+                    print(f"Could not extract ID number on page {page_number}")
+                if len(center_name) == 0:
+                    print(f"Could not extract center name on page {page_number}")
+                if len(exam_date) == 0:
+                    print(f"Could not extract series on page {page_number}")
+
+                print(f"Invalid document on page {page_number}, skipping")
+
+                continue
+
+            # assert len(exam_kind) > 0, "Could not extract exam kind"
+            # assert len(name) > 0, "Could not extract name"
+            # assert len(dob) > 0, "Could not extract DOB"
+            # assert len(id_num) > 0, "Could not extract ID number"
+            # assert len(center_name) > 0, "Could not extract center name"
+            # assert len(exam_date) > 0, "Could not extract series"
+
+            name = " ".join([i for i in map(lambda x: x[0].upper() + x[1:].lower(), name.split("\n")[1].split(" "))])
+            dob = dob.split("\n")[1]
+            id_num = id_num.split("\n")[1]
+            center_name = format_str_from_ocr(center_name.split("\n")[1])
+            exam_date = exam_date.split("\n")[1]
+
+            # print("=======")
+            # print("Title: ", title)
+            # print("Exam kind: ", exam_kind)
+            # print("Name: ", name)
+            # print("DOB: ", dob)
+            # print("ID num: ", id_num)
+            # print("Center name: ", center_name)
+            # print("Series: ", exam_date)
+
+            line_height = 0.005
+            line_space = 0.013
+            subject_start_pos = 0.4336 if "Electronic" in title else 0.2747
+
+            digit_regex = re.compile(r'\d+')
+            
+            subjects: list[SubjectResult] = []
+            reached_end = False
+            item_num = 0
+            while not reached_end and subject_start_pos < 1:
+                line_rect = make_rect((0, subject_start_pos, 1, subject_start_pos + line_height))
+                line_text = page.extractTextbox(line_rect).strip()
+                subject_start_pos += line_height + line_space
+
+                if len(line_text) == 0:
+                    reached_end = True
                 else:
-                    subject_name = " ".join(items[1:-3])
-                    qualification = items[-3].strip()
-                    grade = self._parse_grade(items[-2].strip())
-                    pum_match = digit_regex.search(items[-1].strip())
-                    if pum_match:
-                        pum = int(pum_match.group())
-                
-                subjects.append(SubjectResult(subject_name, grade, syllabus_code,  pum, qualification))
+                    items = re.split(r'[\—\-\n;,.\/\\\=\+]+', line_text)
 
-        page = None
+                    if "Syllabus" in line_text:
+                        item_num = len(items)
+                        continue
+
+                    if line_text.startswith("With"):
+                        last_item = subjects.pop()
+                        minor_grade_match = digit_regex.search(line_text)
+                        if minor_grade_match:
+                            last_item.grade += f"-{minor_grade_match.group()}"
+                        subjects.append(last_item)
+                        continue
+
+                    syllabus_code = items[0].strip()
+                    subject_name = ""
+                    qualification = ""
+                    grade = ""
+                    pum = 0
+                    
+                    if item_num == 4:
+                        subject_name = format_str_from_ocr(" ".join(items[1:-2]))
+                        grade = self._parse_grade(items[-2].strip())
+                        qualification = exam_kind
+                        pum_match = digit_regex.search(items[-1].strip())
+                        if pum_match:
+                            pum = int(pum_match.group())
+                    else:
+                        subject_name = format_str_from_ocr(" ".join(items[1:-3]))
+                        qualification = format_str_from_ocr(items[-3])
+                        grade = self._parse_grade(items[-2].strip())
+                        pum_match = digit_regex.search(items[-1].strip())
+                        if pum_match:
+                            pum = int(pum_match.group())
+                    
+                    subjects.append(SubjectResult(subject_name, grade, syllabus_code,  pum, qualification))
+
+            page = None
+            records.append(ExamRecord(name, exam_date, center_name, "statement", subjects, id_num))
+        
         doc.close()
-        return ExamRecord(name, exam_date, center_name, "statement", subjects, id_num)
-
+        return records
     def extract_all(
-        self, pdf_paths: list[str]
-    ) -> list[ExamRecord]:
+        self, pdf_paths: list[str]  # List of PDF file paths to process
+    ) -> list[ExamRecord]:  # Return type: List of ExamRecord objects
         """
         Extract data from multiple PDF files.
         Returns a list of ExamRecord objects.
+        Args:
+            pdf_paths: A list of file paths pointing to PDF files to be processed
+        Returns:
+            A list of ExamRecord objects containing extracted data from the PDFs
         """
         records = []
         for pdf_path in pdf_paths:
             try:
                 record = self.extract(pdf_path)
-                records.append(record)
+                records.extend(record)
             except Exception as e:
                 print(f"Error processing {pdf_path}: {e}")
         return records
@@ -265,28 +307,29 @@ if __name__ == "__main__":
     extractor = CambridgeOCRExtractor(dpi=300)
 
     for pdf_path in [
-        "test/statements/Electronic Statement of Results-2025-Nov-AL.pdf",
-        "test/statements/Statement of Results-2024-June-IG.pdf"
+        "test/statements/statement-combined.pdf"
     ]:
-        result = extractor.extract(pdf_path)
+        results = extractor.extract(pdf_path)
 
-        print(f"\n{'=' * 60}")
-        print(f"File: {pdf_path}")
-        print(f"Document Type: {result.document_type}")
-        print(f"Candidate: {result.candidate_name}")
-        print(f"Candidate No: {result.candidate_number or 'N/A'}")
-        print(f"School: {result.school}")
-        print(f"Exam Date: {result.exam_date}")
-        print("Subjects:")
-        for sub in result.subjects:
-            details = f"  • {sub.name}: {sub.grade}"
-            if sub.level:
-                details += f" ({sub.level})"
-            if sub.percentage_mark:
-                details += f" - {sub.percentage_mark}%"
-            if sub.syllabus_code:
-                details += f" [{sub.syllabus_code}]"
-            print(details)
+        for result in results:
 
-        xlsx_file = extractor.write_to_xlsx([result])
+            print(f"\n{'=' * 60}")
+            print(f"File: {pdf_path}")
+            print(f"Document Type: {result.document_type}")
+            print(f"Candidate: {result.candidate_name}")
+            print(f"Candidate No: {result.candidate_number or 'N/A'}")
+            print(f"School: {result.school}")
+            print(f"Exam Date: {result.exam_date}")
+            print("Subjects:")
+            for sub in result.subjects:
+                details = f"  • {sub.name}: {sub.grade}"
+                if sub.level:
+                    details += f" ({sub.level})"
+                if sub.percentage_mark:
+                    details += f" - {sub.percentage_mark}%"
+                if sub.syllabus_code:
+                    details += f" [{sub.syllabus_code}]"
+                print(details)
+
+        xlsx_file = extractor.write_to_xlsx(results)
         print(f"Written to: {xlsx_file}")
