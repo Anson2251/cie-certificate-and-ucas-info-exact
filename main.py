@@ -1,4 +1,5 @@
 import os
+import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from parse_cie_statement import CambridgeOCRExtractor
@@ -21,7 +22,7 @@ class ExtractorGUI:
     def _create_widgets(self):
         padding = {"padx": 10, "pady": 5}
 
-        ttk.Label(self.root, text="CIE Statement/Statement Directory:").pack(
+        ttk.Label(self.root, text="CIE Statement Directory:").pack(
             fill=tk.X, **padding
         )
         statement_frame = ttk.Frame(self.root)
@@ -77,9 +78,7 @@ class ExtractorGUI:
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
 
     def _browse_statement_dir(self):
-        path = filedialog.askdirectory(
-            title="Select CIE Statement/Statement Directory"
-        )
+        path = filedialog.askdirectory(title="Select CIE Statement/Statement Directory")
         if path:
             self.statement_dir.set(path)
 
@@ -108,33 +107,86 @@ class ExtractorGUI:
             return
 
         self.status_var.set("Processing CIE statements/statements...")
-        self.root.update()
+        self._set_buttons_enabled(False)
 
+        thread = threading.Thread(
+            target=self._generate_cie_xlsx_thread, args=(directory,), daemon=True
+        )
+        thread.start()
+
+    def _generate_cie_xlsx_thread(self, directory):
         try:
             pdf_files = [f for f in os.listdir(directory) if f.lower().endswith(".pdf")]
             if not pdf_files:
-                messagebox.showinfo(
-                    "Info", "No PDF files found in the selected directory."
+                self.root.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "Info", "No PDF files found in the selected directory."
+                    ),
                 )
+                self.root.after(0, lambda: self.status_var.set("No PDF files found."))
                 return
 
+            total_files = len(pdf_files)
             pdf_paths = [os.path.join(directory, f) for f in pdf_files]
             extractor = CambridgeOCRExtractor(dpi=300)
-            all_records = extractor.extract_all(pdf_paths)
+            all_records = []
+
+            for idx, pdf_path in enumerate(pdf_paths, 1):
+                filename = os.path.basename(pdf_path)
+                current_file_idx = idx
+
+                def progress_callback(page_num, total_pages):
+                    self.root.after(
+                        0,
+                        lambda c=current_file_idx,
+                        t=total_files,
+                        f=filename,
+                        p=page_num,
+                        tp=total_pages: self.status_var.set(
+                            f"[{c}/{t}] Processing: {f} [page {p}/{tp}]"
+                        ),
+                    )
+
+                self.root.after(
+                    0,
+                    lambda i=idx, t=total_files, f=filename: self.status_var.set(
+                        f"[{i}/{t}] Processing: {f}"
+                    ),
+                )
+                try:
+                    records = extractor.extract(pdf_path, progress_callback)
+                    all_records.extend(records)
+                except Exception as e:
+                    print(f"Error processing {pdf_path}: {e}")
 
             if all_records:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 output_path = self._get_output_path(f"cie_results_{timestamp}.xlsx")
                 extractor.write_to_xlsx(all_records, output_path)
-                self.status_var.set(f"Done! Written to: {output_path}")
-                messagebox.showinfo("Success", f"Generated {output_path}")
+                self.root.after(
+                    0, lambda: self.status_var.set(f"Done! Written to: {output_path}")
+                )
+                self.root.after(
+                    0,
+                    lambda: messagebox.showinfo("Success", f"Generated {output_path}"),
+                )
             else:
-                messagebox.showerror("Error", "No records extracted from PDFs.")
-                self.status_var.set("No records extracted.")
+                self.root.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Error", "No records extracted from PDFs."
+                    ),
+                )
+                self.root.after(0, lambda: self.status_var.set("No records extracted."))
 
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to process: {e}")
-            self.status_var.set("Error occurred.")
+            self.root.after(
+                0, lambda: messagebox.showerror("Error", f"Failed to process: {e}")
+            )
+            self.root.after(0, lambda: self.status_var.set("Error occurred."))
+        finally:
+            self.root.after(0, lambda: self._set_buttons_enabled(True))
 
     def _generate_ucas_xlsx(self):
         directory = self.ucas_dir.get()
@@ -145,26 +197,55 @@ class ExtractorGUI:
             return
 
         self.status_var.set("Processing UCAS PDFs...")
-        self.root.update()
+        self._set_buttons_enabled(False)
 
+        thread = threading.Thread(
+            target=self._generate_ucas_xlsx_thread, args=(directory,), daemon=True
+        )
+        thread.start()
+
+    def _generate_ucas_xlsx_thread(self, directory):
         try:
             pdf_files = [f for f in os.listdir(directory) if f.lower().endswith(".pdf")]
             if not pdf_files:
-                messagebox.showinfo(
-                    "Info", "No PDF files found in the selected directory."
+                self.root.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "Info", "No PDF files found in the selected directory."
+                    ),
                 )
+                self.root.after(0, lambda: self.status_var.set("No PDF files found."))
                 return
 
             all_data = []
+            total_files = len(pdf_files)
 
-            for pdf_file in pdf_files:
+            for idx, pdf_file in enumerate(pdf_files, 1):
                 pdf_path = os.path.join(directory, pdf_file)
-                self.status_var.set(f"Processing: {pdf_file}")
-                self.root.update()
+                current_file_idx = idx
+
+                def progress_callback(page_num, total_pages):
+                    self.root.after(
+                        0,
+                        lambda c=current_file_idx,
+                        t=total_files,
+                        f=pdf_file,
+                        p=page_num,
+                        tp=total_pages: self.status_var.set(
+                            f"[{c}/{t}] Processing: {f} [page {p}/{tp}]"
+                        ),
+                    )
+
+                self.root.after(
+                    0,
+                    lambda i=idx, t=total_files, f=pdf_file: self.status_var.set(
+                        f"[{i}/{t}] Processing: {f}"
+                    ),
+                )
 
                 try:
                     extractor = UCASExtractor(pdf_path)
-                    data = extractor.extract()
+                    data = extractor.extract(progress_callback)
                     print(
                         f"Extracted {len(data.education)} education entries from {pdf_file}"
                     )
@@ -183,15 +264,37 @@ class ExtractorGUI:
                     UCASExtractor(), all_data, output_path
                 )
                 print(f"Written to: {output_path}")
-                self.status_var.set(f"Done! Written to: {output_path}")
-                messagebox.showinfo("Success", f"Generated {output_path}")
+                self.root.after(
+                    0, lambda: self.status_var.set(f"Done! Written to: {output_path}")
+                )
+                self.root.after(
+                    0,
+                    lambda: messagebox.showinfo("Success", f"Generated {output_path}"),
+                )
             else:
-                messagebox.showerror("Error", "No records extracted from PDFs.")
-                self.status_var.set("No records extracted.")
+                self.root.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Error", "No records extracted from PDFs."
+                    ),
+                )
+                self.root.after(0, lambda: self.status_var.set("No records extracted."))
 
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to process: {e}")
-            self.status_var.set("Error occurred.")
+            self.root.after(
+                0, lambda: messagebox.showerror("Error", f"Failed to process: {e}")
+            )
+            self.root.after(0, lambda: self.status_var.set("Error occurred."))
+        finally:
+            self.root.after(0, lambda: self._set_buttons_enabled(True))
+
+    def _set_buttons_enabled(self, enabled: bool):
+        state = "normal" if enabled else "disabled"
+        for widget in self.root.winfo_children():
+            if isinstance(widget, ttk.Frame):
+                for child in widget.winfo_children():
+                    if isinstance(child, ttk.Button):
+                        child.configure(state=state)
 
 
 def main():

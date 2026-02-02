@@ -25,6 +25,7 @@ class ExamRecord:
     subjects: List[SubjectResult]
     candidate_number: Optional[str] = None
 
+
 @dataclass
 class RectCoefficients:
     title: tuple = (0, 0.041, 1, 0.08)
@@ -34,6 +35,7 @@ class RectCoefficients:
     id_num: tuple = (0.787, 0.115, 1, 0.166)
     center_name: tuple = (0, 0.166, 0.5, 0.217)
     series: tuple = (0.646, 0.166, 0.787, 0.217)
+
 
 class ElectronicRectCoefficients:
     # All y0 and y1 values increased by 0.085
@@ -47,10 +49,15 @@ class ElectronicRectCoefficients:
 
 
 def format_str_from_ocr(string: str) -> str:
-    return " ".join([i for i in map(
-        lambda x: x.lower() if len(x) <= 3 else (x[0].upper() + x[1:].lower()), 
-        string.strip().strip(".").strip(":").strip().split(" ")
-    )])
+    return " ".join(
+        [
+            i
+            for i in map(
+                lambda x: x.lower() if len(x) <= 3 else (x[0].upper() + x[1:].lower()),
+                string.strip().strip(".").strip(":").strip().split(" "),
+            )
+        ]
+    )
 
 
 class CambridgeOCRExtractor:
@@ -60,16 +67,16 @@ class CambridgeOCRExtractor:
         """
         self.dpi = dpi
 
-    def extract(self, pdf_path: str) -> list[ExamRecord]:
+    def extract(self, pdf_path: str, progress_callback=None) -> list[ExamRecord]:
         print("Processing document:", pdf_path)
         doc = fitz.open(pdf_path)
+        total_pages = len(doc)
         records = []
-        for page in doc:
-            page_number = page.number
-            assert page_number is not None, "Page number is None"
-            page_number += 1
+        for page_num, page in enumerate(doc, 1):
+            if progress_callback:
+                progress_callback(page_num, total_pages)
             page_rect = page.rect
-            
+
             common_coeffs = RectCoefficients()
             electronic_coeffs = ElectronicRectCoefficients()
 
@@ -84,7 +91,7 @@ class CambridgeOCRExtractor:
             is_electronic = len(page.get_textbox(page.rect)) > 0
 
             if not is_electronic:
-                print(f"Non-electronic document on page {page_number}, using OCR")
+                print(f"Non-electronic document on page {page_num}, using OCR")
                 page = page.get_textpage_ocr(
                     language="eng",
                     dpi=self.dpi,
@@ -93,13 +100,31 @@ class CambridgeOCRExtractor:
             else:
                 page = page.get_textpage()
 
-            title_rect = make_rect(common_coeffs.title if not is_electronic else electronic_coeffs.title)
-            exam_kind_rect = make_rect(common_coeffs.exam_kind if not is_electronic else electronic_coeffs.exam_kind)
-            name_rect = make_rect(common_coeffs.name if not is_electronic else electronic_coeffs.name)
-            dob_rect = make_rect(common_coeffs.dob if not is_electronic else electronic_coeffs.dob)
-            id_num = make_rect(common_coeffs.id_num if not is_electronic else electronic_coeffs.id_num)
-            center_name_rect = make_rect(common_coeffs.center_name if not is_electronic else electronic_coeffs.center_name)
-            series_rect = make_rect(common_coeffs.series if not is_electronic else electronic_coeffs.series)
+            title_rect = make_rect(
+                common_coeffs.title if not is_electronic else electronic_coeffs.title
+            )
+            exam_kind_rect = make_rect(
+                common_coeffs.exam_kind
+                if not is_electronic
+                else electronic_coeffs.exam_kind
+            )
+            name_rect = make_rect(
+                common_coeffs.name if not is_electronic else electronic_coeffs.name
+            )
+            dob_rect = make_rect(
+                common_coeffs.dob if not is_electronic else electronic_coeffs.dob
+            )
+            id_num = make_rect(
+                common_coeffs.id_num if not is_electronic else electronic_coeffs.id_num
+            )
+            center_name_rect = make_rect(
+                common_coeffs.center_name
+                if not is_electronic
+                else electronic_coeffs.center_name
+            )
+            series_rect = make_rect(
+                common_coeffs.series if not is_electronic else electronic_coeffs.series
+            )
 
             title = page.extractTextbox(title_rect).strip()
             exam_kind = page.extractTextbox(exam_kind_rect).strip()
@@ -118,19 +143,19 @@ class CambridgeOCRExtractor:
                 or len(exam_date) == 0
             ):
                 if len(exam_kind) == 0:
-                    print(f"Could not extract exam kind on page {page_number}")
+                    print(f"Could not extract exam kind on page {page_num}")
                 if len(name) == 0:
-                    print(f"Could not extract name on page {page_number}")
+                    print(f"Could not extract name on page {page_num}")
                 if len(dob) == 0:
-                    print(f"Could not extract DOB on page {page_number}")
+                    print(f"Could not extract DOB on page {page_num}")
                 if len(id_num) == 0:
-                    print(f"Could not extract ID number on page {page_number}")
+                    print(f"Could not extract ID number on page {page_num}")
                 if len(center_name) == 0:
-                    print(f"Could not extract center name on page {page_number}")
+                    print(f"Could not extract center name on page {page_num}")
                 if len(exam_date) == 0:
-                    print(f"Could not extract series on page {page_number}")
+                    print(f"Could not extract series on page {page_num}")
 
-                print(f"Invalid document on page {page_number}, skipping")
+                print(f"Invalid document on page {page_num}, skipping")
 
                 continue
 
@@ -141,7 +166,15 @@ class CambridgeOCRExtractor:
             # assert len(center_name) > 0, "Could not extract center name"
             # assert len(exam_date) > 0, "Could not extract series"
 
-            name = " ".join([i for i in map(lambda x: x[0].upper() + x[1:].lower(), name.split("\n")[1].split(" "))])
+            name = " ".join(
+                [
+                    i
+                    for i in map(
+                        lambda x: x[0].upper() + x[1:].lower(),
+                        name.split("\n")[1].split(" "),
+                    )
+                ]
+            )
             dob = dob.split("\n")[1]
             id_num = id_num.split("\n")[1]
             center_name = format_str_from_ocr(center_name.split("\n")[1])
@@ -160,20 +193,22 @@ class CambridgeOCRExtractor:
             line_space = 0.013
             subject_start_pos = 0.4336 if "Electronic" in title else 0.2747
 
-            digit_regex = re.compile(r'\d+')
-            
+            digit_regex = re.compile(r"\d+")
+
             subjects: list[SubjectResult] = []
             reached_end = False
             item_num = 0
             while not reached_end and subject_start_pos < 1:
-                line_rect = make_rect((0, subject_start_pos, 1, subject_start_pos + line_height))
+                line_rect = make_rect(
+                    (0, subject_start_pos, 1, subject_start_pos + line_height)
+                )
                 line_text = page.extractTextbox(line_rect).strip()
                 subject_start_pos += line_height + line_space
 
                 if len(line_text) == 0:
                     reached_end = True
                 else:
-                    items = re.split(r'[\—\-\n;,.\/\\\=\+]+', line_text)
+                    items = re.split(r"[\—\-\n;,.\/\\\=\+]+", line_text)
 
                     if "Syllabus" in line_text:
                         item_num = len(items)
@@ -192,7 +227,7 @@ class CambridgeOCRExtractor:
                     qualification = ""
                     grade = ""
                     pum = 0
-                    
+
                     if item_num == 4:
                         subject_name = format_str_from_ocr(" ".join(items[1:-2]))
                         grade = self._parse_grade(items[-2].strip())
@@ -207,16 +242,24 @@ class CambridgeOCRExtractor:
                         pum_match = digit_regex.search(items[-1].strip())
                         if pum_match:
                             pum = int(pum_match.group())
-                    
-                    subjects.append(SubjectResult(subject_name, grade, syllabus_code,  pum, qualification))
+
+                    subjects.append(
+                        SubjectResult(
+                            subject_name, grade, syllabus_code, pum, qualification
+                        )
+                    )
 
             page = None
-            records.append(ExamRecord(name, exam_date, center_name, "statement", subjects, id_num))
-        
+            records.append(
+                ExamRecord(name, exam_date, center_name, "statement", subjects, id_num)
+            )
+
         doc.close()
         return records
+
     def extract_all(
-        self, pdf_paths: list[str]  # List of PDF file paths to process
+        self,
+        pdf_paths: list[str],  # List of PDF file paths to process
     ) -> list[ExamRecord]:  # Return type: List of ExamRecord objects
         """
         Extract data from multiple PDF files.
@@ -255,11 +298,14 @@ class CambridgeOCRExtractor:
             return inner.upper()
 
         grade_line = grade_line.upper()
-        if (grade_line[0] != "A"): return grade_line[0]
+        if grade_line[0] != "A":
+            return grade_line[0]
         else:
-            if grade_line[1] == "*": return grade_line[0:2]
-            else: return grade_line[0]
-    
+            if grade_line[1] == "*":
+                return grade_line[0:2]
+            else:
+                return grade_line[0]
+
     def write_to_xlsx(
         self, records: list[ExamRecord], output_path: str = "cie_results.xlsx"
     ) -> str:
@@ -306,13 +352,10 @@ class CambridgeOCRExtractor:
 if __name__ == "__main__":
     extractor = CambridgeOCRExtractor(dpi=300)
 
-    for pdf_path in [
-        "test/statements/statement-combined.pdf"
-    ]:
+    for pdf_path in ["test/statements/statement-combined.pdf"]:
         results = extractor.extract(pdf_path)
 
         for result in results:
-
             print(f"\n{'=' * 60}")
             print(f"File: {pdf_path}")
             print(f"Document Type: {result.document_type}")

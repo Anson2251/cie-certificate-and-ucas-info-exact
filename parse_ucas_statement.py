@@ -33,9 +33,13 @@ class UCASExtractor:
     def __init__(self, pdf_path: str = "./test/ucas/example-ucas.pdf"):
         self.pdf_path = pdf_path
 
-    def extract(self) -> UCASData:
+    def extract(self, progress_callback=None) -> UCASData:
         doc = pymupdf.open(self.pdf_path)
-        print("Number of pages: ", doc.page_count)
+        total_pages = doc.page_count
+        print("Number of pages: ", total_pages)
+
+        if progress_callback:
+            progress_callback(1, total_pages)
 
         pdf_dim = (doc[0].rect.width, doc[0].rect.height)
         print("Dimension: ", pdf_dim)
@@ -52,6 +56,9 @@ class UCASExtractor:
 
         print(education_title_page, employment_title_page)
 
+        if progress_callback:
+            progress_callback(min(2, total_pages), total_pages)
+
         education_raw_text = self._get_text_between(
             doc,
             education_title_page,
@@ -61,6 +68,9 @@ class UCASExtractor:
         )
 
         education_info = self._parse_education_info(education_raw_text)
+
+        if progress_callback:
+            progress_callback(total_pages, total_pages)
 
         return UCASData(
             name=name,
@@ -137,18 +147,18 @@ class UCASExtractor:
         assert len(raw_text) > 0, "No header text found in first page"
 
         lines = raw_text.split("\n")
-        name_match = re.search(r'^([A-Za-z]+\s[A-Za-z]+)', lines[0])
-        class_match = re.search(r'Group:\s*([^;]+)', lines[-1])
+        name_match = re.search(r"^([A-Za-z]+\s[A-Za-z]+)", lines[0])
+        class_match = re.search(r"Group:\s*([^;]+)", lines[-1])
 
         name = ""
         class_group = ""
 
         if name_match:
             name = name_match.group(1)
-        
+
         if class_match:
             class_group = class_match.group(1)
-        
+
         return name, class_group
 
     def _parse_education_info(self, raw_text: str) -> list[EducationEntry]:
