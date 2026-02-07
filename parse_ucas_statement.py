@@ -34,6 +34,7 @@ class UCASExtractor:
         self.pdf_path = pdf_path
 
     def extract(self, progress_callback: Callable | None = None) -> UCASData:
+        print("Processing UCAS PDF: ", self.pdf_path)
         doc = pymupdf.open(self.pdf_path)
         total_pages = doc.page_count
         print("Number of pages: ", total_pages)
@@ -53,8 +54,6 @@ class UCASExtractor:
         employment_section = self._get_employment_section(doc)[0]
         employment_title_page = employment_section[0]
         employment_title_rect = employment_section[1][0]
-
-        print(education_title_page, employment_title_page)
 
         if progress_callback:
             progress_callback(min(2, total_pages), total_pages)

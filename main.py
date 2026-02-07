@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from parse_cie_statement import CambridgeOCRExtractor
 from parse_ucas_statement import UCASExtractor
+from parse_predicted_grade_statement import PredictedGradeExtractor
 from datetime import datetime
 
 
@@ -11,10 +12,11 @@ class ExtractorGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("CIE Statement & UCAS Extractor")
-        self.root.geometry("600x400")
+        self.root.geometry("800x400")
 
         self.statement_dir = tk.StringVar()
         self.ucas_dir = tk.StringVar()
+        self.predicted_grade_dir = tk.StringVar()
         self.output_dir = tk.StringVar()
 
         self._create_widgets()
@@ -22,9 +24,7 @@ class ExtractorGUI:
     def _create_widgets(self):
         padding = {"padx": 10, "pady": 5}
 
-        ttk.Label(self.root, text="CIE Statement Directory:").pack(
-            fill=tk.X, **padding
-        )
+        ttk.Label(self.root, text="CIE Statement Directory:").pack(fill=tk.X, **padding)
         statement_frame = ttk.Frame(self.root)
         statement_frame.pack(fill=tk.X, **padding)
         ttk.Entry(statement_frame, textvariable=self.statement_dir, width=50).pack(
@@ -43,6 +43,18 @@ class ExtractorGUI:
         ttk.Button(ucas_frame, text="Browse", command=self._browse_ucas_dir).pack(
             side=tk.RIGHT, padx=5
         )
+
+        ttk.Label(self.root, text="Predicted Grade PDF Directory:").pack(
+            fill=tk.X, **padding
+        )
+        predicted_frame = ttk.Frame(self.root)
+        predicted_frame.pack(fill=tk.X, **padding)
+        ttk.Entry(
+            predicted_frame, textvariable=self.predicted_grade_dir, width=50
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(
+            predicted_frame, text="Browse", command=self._browse_predicted_grade_dir
+        ).pack(side=tk.RIGHT, padx=5)
 
         ttk.Label(self.root, text="Output Directory:").pack(fill=tk.X, **padding)
         output_frame = ttk.Frame(self.root)
@@ -71,6 +83,12 @@ class ExtractorGUI:
             command=self._generate_ucas_xlsx,
         ).pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
 
+        ttk.Button(
+            button_frame,
+            text="Generate Predicted Grade XLSX",
+            command=self._generate_predicted_xlsx,
+        ).pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+
         self.status_var = tk.StringVar(value="Ready")
         status_bar = ttk.Label(
             self.root, textvariable=self.status_var, relief=tk.SUNKEN
@@ -86,6 +104,11 @@ class ExtractorGUI:
         path = filedialog.askdirectory(title="Select UCAS PDF Directory")
         if path:
             self.ucas_dir.set(path)
+
+    def _browse_predicted_grade_dir(self):
+        path = filedialog.askdirectory(title="Select Predicted Grade PDF Directory")
+        if path:
+            self.predicted_grade_dir.set(path)
 
     def _browse_output_dir(self):
         path = filedialog.askdirectory(title="Select Output Directory")
@@ -260,10 +283,100 @@ class ExtractorGUI:
             if all_data:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 output_path = self._get_output_path(f"ucas_results_{timestamp}.xlsx")
-                UCASExtractor.write_to_xlsx(
-                    UCASExtractor(), all_data, output_path
-                )
+                UCASExtractor.write_to_xlsx(UCASExtractor(), all_data, output_path)
                 print(f"Written to: {output_path}")
+                self.root.after(
+                    0, lambda: self.status_var.set(f"Done! Written to: {output_path}")
+                )
+                self.root.after(
+                    0,
+                    lambda: messagebox.showinfo("Success", f"Generated {output_path}"),
+                )
+            else:
+                self.root.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Error", "No records extracted from PDFs."
+                    ),
+                )
+                self.root.after(0, lambda: self.status_var.set("No records extracted."))
+
+        except Exception as e:
+            self.root.after(
+                0, lambda: messagebox.showerror("Error", f"Failed to process: {e}")
+            )
+            self.root.after(0, lambda: self.status_var.set("Error occurred."))
+        finally:
+            self.root.after(0, lambda: self._set_buttons_enabled(True))
+
+    def _generate_predicted_xlsx(self):
+        directory = self.predicted_grade_dir.get()
+        if not directory:
+            messagebox.showwarning(
+                "Warning", "Please select a directory for Predicted Grade PDFs."
+            )
+            return
+
+        self.status_var.set("Processing Predicted Grade PDFs...")
+        self._set_buttons_enabled(False)
+
+        thread = threading.Thread(
+            target=self._generate_predicted_xlsx_thread, args=(directory,), daemon=True
+        )
+        thread.start()
+
+    def _generate_predicted_xlsx_thread(self, directory):
+        try:
+            pdf_files = [f for f in os.listdir(directory) if f.lower().endswith(".pdf")]
+            if not pdf_files:
+                self.root.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "Info", "No PDF files found in the selected directory."
+                    ),
+                )
+                self.root.after(0, lambda: self.status_var.set("No PDF files found."))
+                return
+
+            total_files = len(pdf_files)
+            pdf_paths = [os.path.join(directory, f) for f in pdf_files]
+            extractor = PredictedGradeExtractor(dpi=300)
+            all_records = []
+
+            for idx, pdf_path in enumerate(pdf_paths, 1):
+                filename = os.path.basename(pdf_path)
+                current_file_idx = idx
+
+                def progress_callback(page_num, total_pages):
+                    self.root.after(
+                        0,
+                        lambda c=current_file_idx,
+                        t=total_files,
+                        f=filename,
+                        p=page_num,
+                        tp=total_pages: self.status_var.set(
+                            f"[{c}/{t}] Processing: {f} [page {p}/{tp}]"
+                        ),
+                    )
+
+                self.root.after(
+                    0,
+                    lambda i=idx, t=total_files, f=filename: self.status_var.set(
+                        f"[{i}/{t}] Processing: {f}"
+                    ),
+                )
+                try:
+                    records = extractor.extract(pdf_path, progress_callback)
+                    all_records.extend(records)
+                except Exception as e:
+                    print(f"Error processing {pdf_path}: {e}")
+
+            if all_records:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_path = self._get_output_path(
+                    f"predicted_grades_{timestamp}.xlsx"
+                )
+                extractor.write_to_xlsx(all_records, output_path)
                 self.root.after(
                     0, lambda: self.status_var.set(f"Done! Written to: {output_path}")
                 )
