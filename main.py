@@ -260,7 +260,7 @@ class ExtractorGUI:
             if all_data:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 output_path = self._get_output_path(f"ucas_results_{timestamp}.xlsx")
-                UCASExtractor.write_combined_to_xlsx(
+                UCASExtractor.write_to_xlsx(
                     UCASExtractor(), all_data, output_path
                 )
                 print(f"Written to: {output_path}")
