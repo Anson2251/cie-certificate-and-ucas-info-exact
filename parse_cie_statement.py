@@ -2,9 +2,7 @@ import fitz  # PyMuPDF
 import re
 import xlsxwriter
 from dataclasses import dataclass
-from datetime import datetime
 from typing import List, Optional
-from more_itertools import peekable
 
 
 @dataclass
@@ -316,16 +314,16 @@ class CambridgeOCRExtractor:
         worksheet = workbook.add_worksheet()
 
         headers = [
-            "candidate_name",
-            "candidate_number",
-            "school",
-            "exam_date",
-            "document_type",
-            "subject_name",
-            "subject_grade",
-            "subject_level",
-            "syllabus_code",
-            "percentage_mark",
+            "Candidate Name",
+            "Candidate Number",
+            "School",
+            "Exam Date",
+            "Document Type",
+            "Subject Name",
+            "Subject Grade",
+            "Subject Level",
+            "Syllabus Code",
+            "Percentage Mark",
         ]
         for col, header in enumerate(headers):
             worksheet.write(0, col, header)
