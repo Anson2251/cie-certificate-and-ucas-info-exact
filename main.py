@@ -138,6 +138,7 @@ class ExtractorGUI:
         thread.start()
 
     def _generate_cie_xlsx_thread(self, directory):
+        errors = []
         try:
             pdf_files = [f for f in os.listdir(directory) if f.lower().endswith(".pdf")]
             if not pdf_files:
@@ -162,12 +163,10 @@ class ExtractorGUI:
                 def progress_callback(page_num, total_pages):
                     self.root.after(
                         0,
-                        lambda c=current_file_idx,
-                        t=total_files,
-                        f=filename,
-                        p=page_num,
-                        tp=total_pages: self.status_var.set(
-                            f"[{c}/{t}] Processing: {f} [page {p}/{tp}]"
+                        lambda c=current_file_idx, t=total_files, f=filename, p=page_num, tp=total_pages: (
+                            self.status_var.set(
+                                f"[{c}/{t}] Processing: {f} [page {p}/{tp}]"
+                            )
                         ),
                     )
 
@@ -181,7 +180,10 @@ class ExtractorGUI:
                     records = extractor.extract(pdf_path, progress_callback)
                     all_records.extend(records)
                 except Exception as e:
-                    print(f"Error processing {pdf_path}: {e}")
+                    import traceback
+
+                    error_detail = traceback.format_exc()
+                    errors.append((filename, str(e), error_detail))
 
             if all_records:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -190,22 +192,42 @@ class ExtractorGUI:
                 self.root.after(
                     0, lambda: self.status_var.set(f"Done! Written to: {output_path}")
                 )
-                self.root.after(
-                    0,
-                    lambda: messagebox.showinfo("Success", f"Generated {output_path}"),
-                )
+                if errors:
+                    self.root.after(
+                        0,
+                        lambda: self._show_error_summary(
+                            "Completed with Errors",
+                            f"Generated {output_path}\n\n{len(errors)} file(s) failed to process.",
+                            errors,
+                        ),
+                    )
+                else:
+                    self.root.after(
+                        0,
+                        lambda: messagebox.showinfo(
+                            "Success", f"Generated {output_path}"
+                        ),
+                    )
             else:
+                error_msg = "No records extracted from PDFs."
+                if errors:
+                    error_msg += f"\n\n{len(errors)} file(s) had errors."
                 self.root.after(
                     0,
-                    lambda: messagebox.showerror(
-                        "Error", "No records extracted from PDFs."
-                    ),
+                    lambda: self._show_error_summary("Error", error_msg, errors),
                 )
                 self.root.after(0, lambda: self.status_var.set("No records extracted."))
 
         except Exception as e:
+            import traceback
+
             self.root.after(
-                0, lambda: messagebox.showerror("Error", f"Failed to process: {e}")
+                0,
+                lambda: self._show_error_summary(
+                    "Error",
+                    f"Failed to process: {e}",
+                    [(directory, str(e), traceback.format_exc())],
+                ),
             )
             self.root.after(0, lambda: self.status_var.set("Error occurred."))
         finally:
@@ -228,6 +250,7 @@ class ExtractorGUI:
         thread.start()
 
     def _generate_ucas_xlsx_thread(self, directory):
+        errors = []
         try:
             pdf_files = [f for f in os.listdir(directory) if f.lower().endswith(".pdf")]
             if not pdf_files:
@@ -250,12 +273,10 @@ class ExtractorGUI:
                 def progress_callback(page_num, total_pages):
                     self.root.after(
                         0,
-                        lambda c=current_file_idx,
-                        t=total_files,
-                        f=pdf_file,
-                        p=page_num,
-                        tp=total_pages: self.status_var.set(
-                            f"[{c}/{t}] Processing: {f} [page {p}/{tp}]"
+                        lambda c=current_file_idx, t=total_files, f=pdf_file, p=page_num, tp=total_pages: (
+                            self.status_var.set(
+                                f"[{c}/{t}] Processing: {f} [page {p}/{tp}]"
+                            )
                         ),
                     )
 
@@ -274,7 +295,10 @@ class ExtractorGUI:
                     )
                     all_data.append(data)
                 except Exception as e:
-                    print(f"Error processing {pdf_file}: {e}")
+                    import traceback
+
+                    error_detail = traceback.format_exc()
+                    errors.append((pdf_file, str(e), error_detail))
 
             print(f"Total PDFs processed: {len(all_data)}")
             total_entries = sum(len(data.education) for data in all_data)
@@ -288,22 +312,42 @@ class ExtractorGUI:
                 self.root.after(
                     0, lambda: self.status_var.set(f"Done! Written to: {output_path}")
                 )
-                self.root.after(
-                    0,
-                    lambda: messagebox.showinfo("Success", f"Generated {output_path}"),
-                )
+                if errors:
+                    self.root.after(
+                        0,
+                        lambda: self._show_error_summary(
+                            "Completed with Errors",
+                            f"Generated {output_path}\n\n{len(errors)} file(s) failed to process.",
+                            errors,
+                        ),
+                    )
+                else:
+                    self.root.after(
+                        0,
+                        lambda: messagebox.showinfo(
+                            "Success", f"Generated {output_path}"
+                        ),
+                    )
             else:
+                error_msg = "No records extracted from PDFs."
+                if errors:
+                    error_msg += f"\n\n{len(errors)} file(s) had errors."
                 self.root.after(
                     0,
-                    lambda: messagebox.showerror(
-                        "Error", "No records extracted from PDFs."
-                    ),
+                    lambda: self._show_error_summary("Error", error_msg, errors),
                 )
                 self.root.after(0, lambda: self.status_var.set("No records extracted."))
 
         except Exception as e:
+            import traceback
+
             self.root.after(
-                0, lambda: messagebox.showerror("Error", f"Failed to process: {e}")
+                0,
+                lambda: self._show_error_summary(
+                    "Error",
+                    f"Failed to process: {e}",
+                    [(directory, str(e), traceback.format_exc())],
+                ),
             )
             self.root.after(0, lambda: self.status_var.set("Error occurred."))
         finally:
@@ -326,6 +370,7 @@ class ExtractorGUI:
         thread.start()
 
     def _generate_predicted_xlsx_thread(self, directory):
+        errors = []
         try:
             pdf_files = [f for f in os.listdir(directory) if f.lower().endswith(".pdf")]
             if not pdf_files:
@@ -350,12 +395,10 @@ class ExtractorGUI:
                 def progress_callback(page_num, total_pages):
                     self.root.after(
                         0,
-                        lambda c=current_file_idx,
-                        t=total_files,
-                        f=filename,
-                        p=page_num,
-                        tp=total_pages: self.status_var.set(
-                            f"[{c}/{t}] Processing: {f} [page {p}/{tp}]"
+                        lambda c=current_file_idx, t=total_files, f=filename, p=page_num, tp=total_pages: (
+                            self.status_var.set(
+                                f"[{c}/{t}] Processing: {f} [page {p}/{tp}]"
+                            )
                         ),
                     )
 
@@ -369,7 +412,10 @@ class ExtractorGUI:
                     records = extractor.extract(pdf_path, progress_callback)
                     all_records.extend(records)
                 except Exception as e:
-                    print(f"Error processing {pdf_path}: {e}")
+                    import traceback
+
+                    error_detail = traceback.format_exc()
+                    errors.append((filename, str(e), error_detail))
 
             if all_records:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -380,26 +426,82 @@ class ExtractorGUI:
                 self.root.after(
                     0, lambda: self.status_var.set(f"Done! Written to: {output_path}")
                 )
-                self.root.after(
-                    0,
-                    lambda: messagebox.showinfo("Success", f"Generated {output_path}"),
-                )
+                if errors:
+                    self.root.after(
+                        0,
+                        lambda: self._show_error_summary(
+                            "Completed with Errors",
+                            f"Generated {output_path}\n\n{len(errors)} file(s) failed to process.",
+                            errors,
+                        ),
+                    )
+                else:
+                    self.root.after(
+                        0,
+                        lambda: messagebox.showinfo(
+                            "Success", f"Generated {output_path}"
+                        ),
+                    )
             else:
+                error_msg = "No records extracted from PDFs."
+                if errors:
+                    error_msg += f"\n\n{len(errors)} file(s) had errors."
                 self.root.after(
                     0,
-                    lambda: messagebox.showerror(
-                        "Error", "No records extracted from PDFs."
-                    ),
+                    lambda: self._show_error_summary("Error", error_msg, errors),
                 )
                 self.root.after(0, lambda: self.status_var.set("No records extracted."))
 
         except Exception as e:
+            import traceback
+
             self.root.after(
-                0, lambda: messagebox.showerror("Error", f"Failed to process: {e}")
+                0,
+                lambda: self._show_error_summary(
+                    "Error",
+                    f"Failed to process: {e}",
+                    [(directory, str(e), traceback.format_exc())],
+                ),
             )
             self.root.after(0, lambda: self.status_var.set("Error occurred."))
         finally:
             self.root.after(0, lambda: self._set_buttons_enabled(True))
+
+    def _show_error_summary(self, title, message, errors):
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.geometry("600x400")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        frame = ttk.Frame(dialog, padding=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text=message, wraplength=560).pack(anchor=tk.W)
+
+        ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+
+        ttk.Label(frame, text="Error Details:").pack(anchor=tk.W)
+
+        text_frame = ttk.Frame(frame)
+        text_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        scrollbar = ttk.Scrollbar(text_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        text = tk.Text(text_frame, wrap=tk.WORD, yscrollcommand=scrollbar.set)
+        text.pack(fill=tk.BOTH, expand=True)
+        scrollbar.config(command=text.yview)
+
+        for filename, error_msg, traceback_detail in errors:
+            text.insert(tk.END, f"File: {filename}\n")
+            text.insert(tk.END, f"Error: {error_msg}\n")
+            text.insert(tk.END, f"Traceback:\n{traceback_detail}\n")
+            text.insert(tk.END, "-" * 60 + "\n\n")
+
+        text.config(state=tk.DISABLED)
+
+        ttk.Button(frame, text="Close", command=dialog.destroy).pack(pady=10)
 
     def _set_buttons_enabled(self, enabled: bool):
         state = "normal" if enabled else "disabled"
