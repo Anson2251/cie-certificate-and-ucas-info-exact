@@ -14,8 +14,8 @@ class ExtractorGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("CIE Statement & UCAS Extractor")
-        self.root.geometry("860x460")
-        self.root.minsize(760, 580)
+        self.root.geometry("860x620")
+        self.root.minsize(760, 620)
 
         self.statement_dir = tk.StringVar()
         self.ucas_dir = tk.StringVar()
