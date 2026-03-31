@@ -1,6 +1,7 @@
 import os
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
 from datetime import datetime
 
@@ -13,88 +14,180 @@ class ExtractorGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("CIE Statement & UCAS Extractor")
-        self.root.geometry("800x400")
+        self.root.geometry("860x460")
+        self.root.minsize(760, 580)
 
         self.statement_dir = tk.StringVar()
         self.ucas_dir = tk.StringVar()
         self.predicted_grade_dir = tk.StringVar()
         self.output_dir = tk.StringVar()
+        self.total_progress_var = tk.DoubleVar(value=0)
+        self.file_progress_var = tk.DoubleVar(value=0)
+        self._interactive_buttons = []
 
+        self._configure_styles()
         self._create_widgets()
 
+    def _configure_styles(self):
+        default_font = tkfont.nametofont("TkDefaultFont")
+        default_font.configure(size=11)
+        heading_font = tkfont.nametofont("TkHeadingFont").copy()
+        heading_font.configure(size=15, weight="bold")
+        section_font = tkfont.nametofont("TkTextFont").copy()
+        section_font.configure(size=11, weight="bold")
+
+        style = ttk.Style()
+        style.configure("Title.TLabel", font=heading_font)
+        style.configure("Subtitle.TLabel")
+        style.configure("Section.TLabelframe", padding=10)
+        style.configure("Section.TLabelframe.Label", font=section_font)
+        style.configure("FieldLabel.TLabel")
+        style.configure("Muted.TLabel")
+        style.configure("Primary.TButton", padding=(10, 6))
+        style.configure("Secondary.TButton", padding=(10, 6))
+        style.configure("Status.TLabel", padding=(8, 6))
+
     def _create_widgets(self):
-        padding = {"padx": 10, "pady": 5}
+        self.root.configure(padx=14, pady=14)
 
-        ttk.Label(self.root, text="CIE Statement Directory:").pack(fill=tk.X, **padding)
-        statement_frame = ttk.Frame(self.root)
-        statement_frame.pack(fill=tk.X, **padding)
-        ttk.Entry(statement_frame, textvariable=self.statement_dir, width=50).pack(
-            side=tk.LEFT, fill=tk.X, expand=True
+        shell = ttk.Frame(self.root)
+        shell.pack(fill=tk.BOTH, expand=True)
+
+        header = ttk.Frame(shell)
+        header.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(header, text="Document Extractor", style="Title.TLabel").pack(
+            anchor=tk.W
         )
-        ttk.Button(
-            statement_frame, text="Browse", command=self._browse_statement_dir
-        ).pack(side=tk.RIGHT, padx=5)
+        ttk.Label(
+            header,
+            text="Choose source folders, then export structured Excel reports.",
+            style="Subtitle.TLabel",
+        ).pack(anchor=tk.W, pady=(2, 0))
 
-        ttk.Label(self.root, text="UCAS PDF Directory:").pack(fill=tk.X, **padding)
-        ucas_frame = ttk.Frame(self.root)
-        ucas_frame.pack(fill=tk.X, **padding)
-        ttk.Entry(ucas_frame, textvariable=self.ucas_dir, width=50).pack(
-            side=tk.LEFT, fill=tk.X, expand=True
+        sources = ttk.LabelFrame(
+            shell, text="Source Folders", style="Section.TLabelframe"
         )
-        ttk.Button(ucas_frame, text="Browse", command=self._browse_ucas_dir).pack(
-            side=tk.RIGHT, padx=5
+        sources.pack(fill=tk.X)
+
+        self._build_directory_row(
+            sources,
+            "CIE Statement Directory",
+            self.statement_dir,
+            self._browse_statement_dir,
+            row=0,
         )
-
-        ttk.Label(self.root, text="Predicted Grade PDF Directory:").pack(
-            fill=tk.X, **padding
+        self._build_directory_row(
+            sources,
+            "UCAS PDF Directory",
+            self.ucas_dir,
+            self._browse_ucas_dir,
+            row=1,
         )
-        predicted_frame = ttk.Frame(self.root)
-        predicted_frame.pack(fill=tk.X, **padding)
-        ttk.Entry(
-            predicted_frame, textvariable=self.predicted_grade_dir, width=50
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(
-            predicted_frame, text="Browse", command=self._browse_predicted_grade_dir
-        ).pack(side=tk.RIGHT, padx=5)
-
-        ttk.Label(self.root, text="Output Directory:").pack(fill=tk.X, **padding)
-        output_frame = ttk.Frame(self.root)
-        output_frame.pack(fill=tk.X, **padding)
-        ttk.Entry(output_frame, textvariable=self.output_dir, width=50).pack(
-            side=tk.LEFT, fill=tk.X, expand=True
+        self._build_directory_row(
+            sources,
+            "Predicted Grade PDF Directory",
+            self.predicted_grade_dir,
+            self._browse_predicted_grade_dir,
+            row=2,
         )
-        ttk.Button(output_frame, text="Browse", command=self._browse_output_dir).pack(
-            side=tk.RIGHT, padx=5
+        self._build_directory_row(
+            sources,
+            "Output Directory",
+            self.output_dir,
+            self._browse_output_dir,
+            row=3,
         )
+        sources.columnconfigure(1, weight=1)
 
-        ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=20)
+        actions = ttk.LabelFrame(
+            shell, text="Export Actions", style="Section.TLabelframe"
+        )
+        actions.pack(fill=tk.X, pady=(10, 0))
+        ttk.Label(
+            actions,
+            text="Run one export at a time. Output files are timestamped automatically.",
+            style="Muted.TLabel",
+        ).pack(anchor=tk.W, pady=(0, 8))
 
-        button_frame = ttk.Frame(self.root)
-        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        button_frame = ttk.Frame(actions)
+        button_frame.pack(fill=tk.X)
+        for column in range(3):
+            button_frame.columnconfigure(column, weight=1)
 
-        ttk.Button(
-            button_frame,
-            text="Generate CIE Statement XLSX",
-            command=self._generate_cie_xlsx,
-        ).pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+        self._register_button(
+            ttk.Button(
+                button_frame,
+                text="Export CIE Statements",
+                command=self._generate_cie_xlsx,
+                style="Primary.TButton",
+            )
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 8))
 
-        ttk.Button(
-            button_frame,
-            text="Generate UCAS XLSX",
-            command=self._generate_ucas_xlsx,
-        ).pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+        self._register_button(
+            ttk.Button(
+                button_frame,
+                text="Export UCAS Results",
+                command=self._generate_ucas_xlsx,
+                style="Secondary.TButton",
+            )
+        ).grid(row=0, column=1, sticky="ew", padx=4)
 
-        ttk.Button(
-            button_frame,
-            text="Generate Predicted Grade XLSX",
-            command=self._generate_predicted_xlsx,
-        ).pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+        self._register_button(
+            ttk.Button(
+                button_frame,
+                text="Export Predicted Grades",
+                command=self._generate_predicted_xlsx,
+                style="Secondary.TButton",
+            )
+        ).grid(row=0, column=2, sticky="ew", padx=(8, 0))
+
+        progress_section = ttk.LabelFrame(
+            shell, text="Progress", style="Section.TLabelframe"
+        )
+        progress_section.pack(fill=tk.X, pady=(10, 0))
+
+        ttk.Label(
+            progress_section, text="Overall Progress", style="FieldLabel.TLabel"
+        ).pack(anchor=tk.W)
+        ttk.Progressbar(
+            progress_section,
+            maximum=100,
+            variable=self.total_progress_var,
+        ).pack(fill=tk.X, pady=(4, 10))
+
+        ttk.Label(
+            progress_section,
+            text="Current File Progress",
+            style="FieldLabel.TLabel",
+        ).pack(anchor=tk.W)
+        ttk.Progressbar(
+            progress_section,
+            maximum=100,
+            variable=self.file_progress_var,
+        ).pack(fill=tk.X, pady=(4, 0))
 
         self.status_var = tk.StringVar(value="Ready")
-        status_bar = ttk.Label(
-            self.root, textvariable=self.status_var, relief=tk.SUNKEN
+        status_bar = ttk.Frame(shell)
+        status_bar.pack(fill=tk.X, pady=(10, 0))
+        ttk.Separator(status_bar, orient=tk.HORIZONTAL).pack(fill=tk.X)
+        ttk.Label(status_bar, textvariable=self.status_var, style="Status.TLabel").pack(
+            fill=tk.X
         )
-        status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+
+    def _build_directory_row(self, parent, label, variable, browse_command, *, row):
+        ttk.Label(parent, text=label, style="FieldLabel.TLabel", width=27).grid(
+            row=row, column=0, sticky="w", padx=(0, 10), pady=4
+        )
+        ttk.Entry(parent, textvariable=variable).grid(
+            row=row, column=1, sticky="ew", pady=4
+        )
+        self._register_button(
+            ttk.Button(parent, text="Browse", command=browse_command)
+        ).grid(row=row, column=2, sticky="e", padx=(8, 0), pady=4)
+
+    def _register_button(self, button):
+        self._interactive_buttons.append(button)
+        return button
 
     def _browse_statement_dir(self):
         path = filedialog.askdirectory(title="Select CIE Statement/Statement Directory")
@@ -147,12 +240,23 @@ class ExtractorGUI:
 
     def _start_generation(self, status_message, worker, directory):
         self.status_var.set(status_message)
+        self._reset_progress()
         self._set_buttons_enabled(False)
         thread = threading.Thread(target=worker, args=(directory,), daemon=True)
         thread.start()
 
     def _set_status(self, message):
         self.root.after(0, lambda: self.status_var.set(message))
+
+    def _reset_progress(self):
+        self.total_progress_var.set(0)
+        self.file_progress_var.set(0)
+
+    def _set_total_progress(self, value):
+        self.root.after(0, lambda: self.total_progress_var.set(max(0, min(100, value))))
+
+    def _set_file_progress(self, value):
+        self.root.after(0, lambda: self.file_progress_var.set(max(0, min(100, value))))
 
     def _show_info(self, title, message):
         self.root.after(0, lambda: messagebox.showinfo(title, message))
@@ -162,6 +266,17 @@ class ExtractorGUI:
 
     def _build_progress_callback(self, current_file_idx, total_files, filename):
         def progress_callback(page_num, total_pages):
+            file_progress = 0
+            if total_pages > 0:
+                file_progress = page_num / total_pages * 100
+            total_progress = (
+                ((current_file_idx - 1) + (page_num / max(total_pages, 1)))
+                / total_files
+                * 100
+            )
+
+            self._set_file_progress(file_progress)
+            self._set_total_progress(total_progress)
             self._set_status(
                 f"[{current_file_idx}/{total_files}] Processing: {filename} [page {page_num}/{total_pages}]"
             )
@@ -192,6 +307,8 @@ class ExtractorGUI:
 
             for idx, pdf_file in enumerate(pdf_files, 1):
                 pdf_path = os.path.join(directory, pdf_file)
+                self._set_file_progress(0)
+                self._set_total_progress(((idx - 1) / total_files) * 100)
                 self._set_status(f"[{idx}/{total_files}] Processing: {pdf_file}")
 
                 try:
@@ -224,6 +341,8 @@ class ExtractorGUI:
                 write_output(all_data, output_path)
 
                 extracted_count = count_records(all_data)
+                self._set_file_progress(100)
+                self._set_total_progress(100)
                 self._set_status(f"Done! Written to: {output_path}")
                 if errors:
                     self._show_error_dialog(
@@ -240,12 +359,14 @@ class ExtractorGUI:
                 error_msg = empty_status
                 if errors:
                     error_msg += f"\n\n{len(errors)} file(s) had errors."
+                self._set_total_progress(100)
                 self._show_error_dialog("Error", error_msg, errors)
                 self._set_status(empty_status)
 
         except Exception as e:
             import traceback
 
+            self._set_file_progress(0)
             self._show_error_dialog(
                 "Error",
                 f"Failed to process: {e}",
@@ -382,11 +503,8 @@ class ExtractorGUI:
 
     def _set_buttons_enabled(self, enabled: bool):
         state = "normal" if enabled else "disabled"
-        for widget in self.root.winfo_children():
-            if isinstance(widget, ttk.Frame):
-                for child in widget.winfo_children():
-                    if isinstance(child, ttk.Button):
-                        child.configure(state=state)
+        for button in self._interactive_buttons:
+            button.configure(state=state)
 
 
 def main():
