@@ -1,4 +1,4 @@
-import fitz  # PyMuPDF
+import pymupdf  # PyMuPDF
 import re
 from dataclasses import dataclass
 from typing import List, Optional
@@ -68,7 +68,7 @@ class CambridgeOCRExtractor:
 
     def extract(self, pdf_path: str, progress_callback=None) -> list[ExamRecord]:
         print("Processing document:", pdf_path)
-        doc = fitz.open(pdf_path)
+        doc = pymupdf.open(pdf_path)
         try:
             total_pages = len(doc)
             records = []
@@ -81,7 +81,7 @@ class CambridgeOCRExtractor:
                 electronic_coeffs = ElectronicRectCoefficients()
 
                 def make_rect(coeff):
-                    return fitz.Rect(
+                    return pymupdf.Rect(
                         page_rect.x1 * coeff[0],
                         page_rect.y1 * coeff[1],
                         page_rect.x1 * coeff[2],

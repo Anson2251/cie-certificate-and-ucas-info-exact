@@ -54,6 +54,70 @@ class UCASExtractor:
         finally:
             doc.close()
 
+    def _entries_for_export(
+        self, education: list[EducationEntry]
+    ) -> list[EducationEntry]:
+        grouped_entries: list[EducationEntry] = []
+        i = 0
+
+        while i < len(education):
+            entry = education[i]
+            if entry.qualification_category != "IELTS":
+                grouped_entries.append(entry)
+                i += 1
+                continue
+
+            group = [entry]
+            i += 1
+            while i < len(education):
+                next_entry = education[i]
+                if (
+                    next_entry.qualification_category == "IELTS"
+                    and next_entry.school_name == entry.school_name
+                    and next_entry.subject_date == entry.subject_date
+                    and next_entry.subject_awarding_org == entry.subject_awarding_org
+                    and next_entry.subject_country == entry.subject_country
+                ):
+                    group.append(next_entry)
+                    i += 1
+                    continue
+                break
+
+            grouped_entries.append(self._merge_ielts_entries(group))
+
+        return grouped_entries
+
+    def _merge_ielts_entries(self, entries: list[EducationEntry]) -> EducationEntry:
+        label_map = {
+            "Overall band": "Overall",
+            "Listening": "L",
+            "Reading": "R",
+            "Writing": "W",
+            "Speaking": "S",
+        }
+        ordered_labels = ["Overall", "L", "R", "W", "S"]
+        values = {}
+
+        for entry in entries:
+            label = label_map.get(entry.subject_name)
+            if label:
+                values[label] = entry.subject_grade
+
+        summary = " ".join(
+            f"{label} {values[label]}" for label in ordered_labels if values.get(label)
+        )
+        first_entry = entries[0]
+
+        return EducationEntry(
+            school_name=first_entry.school_name,
+            qualification_category=first_entry.qualification_category,
+            subject_name="IELTS",
+            subject_grade=summary or first_entry.subject_grade,
+            subject_date=first_entry.subject_date,
+            subject_awarding_org=first_entry.subject_awarding_org,
+            subject_country=first_entry.subject_country,
+        )
+
     def extract(self, progress_callback: Callable | None = None) -> UCASData:
         print("Processing UCAS PDF: ", self.pdf_path)
         doc = pymupdf.open(self.pdf_path)
@@ -257,6 +321,8 @@ class UCASExtractor:
         if not lines:
             return []
 
+        print(raw_text)
+
         qualification_end_index = len(lines)
         if "Unique Learner Number (ULN):" in lines:
             qualification_end_index = lines.index("Unique Learner Number (ULN):")
@@ -338,34 +404,70 @@ class UCASExtractor:
             module_mode = False
             block_qualification_date = ""
             pending_overall_band_grade = ""
+            pending_module_values: list[str] = []
 
             qualification_lines = peekable(lines[i + 4 : end_index])
             for j in qualification_lines:
                 if j == "Module(s)":
                     flush_subject()
                     module_mode = True
+                    pending_module_values = []
                     continue
 
                 if module_mode:
-                    if j == "Module title Grade Qualification date":
+                    if j in {
+                        "Module title Grade Qualification date",
+                        "Module title",
+                        "Grade",
+                        "Qualification date",
+                    }:
                         continue
 
-                    parsed_module = parse_module_row(j)
-                    if parsed_module:
-                        module_name, module_grade, module_date = parsed_module
-                        append_entry(
-                            school_name,
-                            qualification_category or "IELTS",
-                            module_name,
-                            module_grade,
-                            module_date,
-                            subject_awarding_org,
-                            subject_country,
+                    if j.startswith(
+                        (
+                            "Overall band:",
+                            "Qualification date:",
+                            "Awarding organisation:",
+                            "Country:",
+                            "Unique Learner Number (ULN):",
                         )
-                        continue
+                    ):
+                        if pending_module_values:
+                            pending_module_values = []
+                        if j == "Unique Learner Number (ULN):":
+                            module_mode = False
+                            break
+                    else:
+                        parsed_module = parse_module_row(j)
+                        if parsed_module:
+                            module_name, module_grade, module_date = parsed_module
+                            append_entry(
+                                school_name,
+                                qualification_category or "IELTS",
+                                module_name,
+                                module_grade,
+                                module_date,
+                                subject_awarding_org,
+                                subject_country,
+                            )
+                            continue
 
-                    if ":" not in j:
-                        module_mode = False
+                        pending_module_values.append(j)
+                        if len(pending_module_values) == 3:
+                            module_name, module_grade, module_date = (
+                                pending_module_values
+                            )
+                            append_entry(
+                                school_name,
+                                qualification_category or "IELTS",
+                                module_name,
+                                module_grade,
+                                module_date,
+                                subject_awarding_org,
+                                subject_country,
+                            )
+                            pending_module_values = []
+                        continue
 
                 if j.startswith("Grade:") or j.startswith("Result:"):
                     subject_grade = j.split(":", 1)[1].strip()
@@ -409,8 +511,15 @@ class UCASExtractor:
                     flush_subject()
 
                     next_line = qualification_lines.peek("")
-                    if next_line and ":" not in next_line:
+                    if next_line.startswith("Overall band:") or j == "IELTS":
                         qualification_category = j.strip()
+                        block_qualification_date = ""
+                        pending_overall_band_grade = ""
+                        school_name = ""
+                    elif next_line and ":" not in next_line:
+                        qualification_category = j.strip()
+                        block_qualification_date = ""
+                        pending_overall_band_grade = ""
                     elif MONTH_YEAR_PATTERN.search(j):
                         parsed_module = parse_module_row(j)
                         if parsed_module:
@@ -467,7 +576,7 @@ class UCASExtractor:
 
             row = 1
             for data in all_data:
-                for entry in data.education:
+                for entry in self._entries_for_export(data.education):
                     worksheet.write(row, 0, data.name)
                     worksheet.write(row, 1, data.group)
                     worksheet.write(row, 2, entry.school_name)

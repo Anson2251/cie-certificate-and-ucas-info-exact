@@ -29,7 +29,7 @@ A Python application with a GUI for extracting student information from Cambridg
 ## Requirements
 
 - Python 3.8+
-- PyMuPDF (fitz)
+- PyMuPDFpymupdf
 - xlsxwriter
 - more-itertools
 
