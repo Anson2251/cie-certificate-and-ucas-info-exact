@@ -79,13 +79,30 @@ extractor.write_to_xlsx(data, "ucas_results.xlsx")
 
 ## Building Executable
 
-To build a standalone executable using PyInstaller:
+### macOS
+
+Build a windowed `.app` that does not open a terminal window:
 
 ```bash
-pyinstaller main.spec
+./package_macos.sh
 ```
 
-The executable will be created in the `dist/main/` directory.
+Outputs:
+
+- `dist/CIE Statement & UCAS Extractor.app`
+- `dist/cie-statement-and-ucas-extractor-macos.zip`
+
+### Windows
+
+Placeholder script:
+
+```bat
+package_windows_placeholder.bat
+```
+
+### Linux
+
+No special packaging flow is provided right now. Use PyInstaller directly if needed.
 
 ## Output Format
 
